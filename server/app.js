@@ -102,7 +102,8 @@ const createApp = () => {
     const clientDistPath = path.join(__dirname, '..', 'client', 'dist');
     app.use(express.static(clientDistPath));
 
-    app.get('*', (req, res, next) => {
+    app.use((req, res, next) => {
+      if (req.method !== 'GET') return next();
       // Let /api/* fall through to 404 handler
       if (req.path.startsWith('/api')) return next();
       res.sendFile(path.join(clientDistPath, 'index.html'));
