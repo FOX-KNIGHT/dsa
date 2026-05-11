@@ -8,7 +8,7 @@ import PageHeader from '../components/PageHeader';
 import BaseCard from '../components/BaseCard';
 import MemberHoverCard from '../components/MemberHoverCard';
 
-const SOCKET_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+const SOCKET_URL = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? window.location.origin : 'http://localhost:5000');
 
 const ClanChat = () => {
   const { user } = useAuth();
