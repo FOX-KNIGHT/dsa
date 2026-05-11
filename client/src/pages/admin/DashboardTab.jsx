@@ -10,21 +10,8 @@ const DashboardTab = ({ setActiveTab }) => {
   const summaryQ = useQuery({
     queryKey: ['admin-dashboard-summary'],
     queryFn: async () => {
-      // Mock data for now, ideally fetch from an admin summary endpoint
-      return {
-        totalMembers: 104,
-        activeClans: 4,
-        activeThisWeek: 87,
-        totalSubmissions: 1432,
-        avgCompletion: 68,
-        pendingAssignments: 3,
-        clanPerformance: [
-          { name: 'Alpha Coders', tag: 'AC', completion: 85, color: 'from-purple-500 to-indigo-500' },
-          { name: 'Byte Knights', tag: 'BK', completion: 72, color: 'from-blue-500 to-cyan-500' },
-          { name: 'Stack Overlords', tag: 'SO', completion: 64, color: 'from-green-500 to-emerald-500' },
-          { name: 'Code Ninjas', tag: 'CN', completion: 45, color: 'from-orange-500 to-red-500' },
-        ]
-      };
+      const res = await api.get('/api/dashboard/admin-summary');
+      return res.data.data;
     }
   });
 

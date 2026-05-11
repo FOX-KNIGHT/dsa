@@ -61,6 +61,7 @@ function App() {
             <Route path="/leaderboard" element={<Leaderboard />} />
             <Route path="/clans" element={<Clans />} />
             <Route path="/profile" element={<Profile />} />
+            <Route path="/profile/:username" element={<Profile />} />
             <Route path="/challenge/:id" element={<ChallengeDetails />} />
             <Route path="/submission/:id" element={<SubmissionDetails />} />
             <Route path="/missions" element={<Missions />} />

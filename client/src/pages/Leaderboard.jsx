@@ -15,7 +15,7 @@ import SkeletonCard from "../components/SkeletonCard";
 import PageHeader from "../components/PageHeader";
 import { useSocket } from "../hooks/useSocket";
 import { api } from "../lib/api";
-import { USE_MOCK, mockClans, mockLeaderboardMembers } from "../lib/mockData";
+
 import { useAuth } from "../context/useAuth";
 import MemberHoverCard from "../components/MemberHoverCard";
 
@@ -127,13 +127,6 @@ const Leaderboard = () => {
     queryKey: ["leaderboard", filters],
     enabled: leaderType === "individual",
     queryFn: async () => {
-      if (USE_MOCK) {
-        return {
-          data: mockLeaderboardMembers,
-          meta: { page: 1, totalPages: 1 },
-        };
-      }
-
       const params = new URLSearchParams({
         window: filters.window,
         page: String(filters.page),
@@ -153,15 +146,13 @@ const Leaderboard = () => {
     queryKey: ["clan-leaderboard", filters.window],
     enabled: leaderType === "clans",
     queryFn: async () => {
-      if (USE_MOCK) {
-        return mockClans;
-      }
       const res = await api.get(
         `/api/clans/leaderboard?window=${filters.window}`,
       );
       return res.data.data || [];
     },
   });
+
 
   const rows = useMemo(() => {
     return leaderType === "clans"

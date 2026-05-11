@@ -42,7 +42,9 @@ const createApp = () => {
   });
 
   app.use(requestContext);
-  app.use(helmet());
+  app.use(helmet({
+    contentSecurityPolicy: false, // Disable CSP for easier deployment of React SPA
+  }));
   app.use(
     cors({
       origin(origin, callback) {
@@ -82,7 +84,7 @@ const createApp = () => {
   app.use('/api/chat', chatRoutes);
   app.use('/api/docs', express.static(path.join(__dirname, 'docs')));
 
-  app.get('/', (req, res) => {
+  app.get('/api', (req, res) => {
     res.status(200).json({
       success: true,
       data: {
@@ -94,6 +96,18 @@ const createApp = () => {
       message: 'Algorithm Arena API is running',
     });
   });
+
+  // Serve static assets in production (SPA deep-link fix)
+  if (process.env.NODE_ENV === 'production') {
+    const clientDistPath = path.join(__dirname, '..', 'client', 'dist');
+    app.use(express.static(clientDistPath));
+
+    app.get('*', (req, res, next) => {
+      // Let /api/* fall through to 404 handler
+      if (req.path.startsWith('/api')) return next();
+      res.sendFile(path.join(clientDistPath, 'index.html'));
+    });
+  }
 
   app.use((err, req, res, next) => {
     logger.error('Unhandled error', {

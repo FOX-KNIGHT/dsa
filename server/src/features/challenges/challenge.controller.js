@@ -4,6 +4,7 @@ const { logAudit } = require('../../../utils/audit');
 const csv = require('csv-parser');
 const { Readable } = require('stream');
 const mammoth = require('mammoth');
+const { fetchLeetCodeDetails } = require('../../../services/leetcode.service');
 
 const getChallenges = async (req, res, next) => {
   try {
@@ -239,6 +240,21 @@ const importChallenges = async (req, res, next) => {
   }
 };
 
+const getLeetCodeDetails = async (req, res, next) => {
+  try {
+    const { slug } = req.query;
+    if (!slug) {
+      res.status(400);
+      throw new Error('LeetCode slug is required');
+    }
+
+    const details = await fetchLeetCodeDetails(slug);
+    return sendSuccess(res, { data: details });
+  } catch (err) {
+    return next(err);
+  }
+};
+
 module.exports = {
   getChallenges,
   getChallengeById,
@@ -246,5 +262,6 @@ module.exports = {
   updateChallenge,
   deleteChallenge,
   importChallenges,
+  getLeetCodeDetails,
 };
 

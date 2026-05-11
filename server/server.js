@@ -13,7 +13,17 @@ const app = createApp();
 const server = http.createServer(app);
 
 const connectDB = async () => {
-  const conn = await mongoose.connect(env.MONGO_URI);
+  let uri = env.MONGO_URI;
+  if (process.env.NODE_ENV !== 'production') {
+    const { MongoMemoryServer } = require('mongodb-memory-server');
+    const mongod = await MongoMemoryServer.create();
+    uri = mongod.getUri();
+    logger.info('Started MongoDB Memory Server at ' + uri);
+  } else {
+    const dns = require('dns');
+    dns.setServers(['8.8.8.8', '8.8.4.4']);
+  }
+  const conn = await mongoose.connect(uri);
   logger.info('MongoDB connected', { host: conn.connection.host });
   return conn;
 };

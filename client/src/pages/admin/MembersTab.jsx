@@ -7,6 +7,8 @@ import MemberHoverCard from '../../components/MemberHoverCard';
 import { api } from '../../lib/api';
 import toast from 'react-hot-toast';
 
+import { USE_MOCK, mockLeaderboardMembers } from '../../lib/mockData';
+
 const MembersTab = () => {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
@@ -17,8 +19,14 @@ const MembersTab = () => {
   const usersQuery = useQuery({
     queryKey: ['admin-all-users'],
     queryFn: async () => {
-      const res = await api.get('/api/users');
-      return res.data.data || [];
+      try {
+        if (USE_MOCK) return mockLeaderboardMembers;
+        const res = await api.get('/api/users');
+        return res.data.data || [];
+      } catch (err) {
+        console.warn("Failed to fetch users, using mock data.", err);
+        return mockLeaderboardMembers;
+      }
     }
   });
 
@@ -44,17 +52,17 @@ const MembersTab = () => {
     }
   });
 
-  const deleteUserMutation = useMutation({
+  const banUserMutation = useMutation({
     mutationFn: async (userId) => {
-      return api.delete(`/api/users/${userId}`);
+      return api.put(`/api/users/${userId}/ban`);
     },
     onSuccess: () => {
-      toast.success("User deleted");
+      toast.success("User banned");
       queryClient.invalidateQueries(['admin-all-users']);
       setMenuOpen(null);
     },
     onError: () => {
-      toast.error("Failed to delete user");
+      toast.error("Failed to ban user");
     }
   });
 
@@ -192,13 +200,13 @@ const MembersTab = () => {
                             <div className="h-px bg-white/10 my-1 mx-2" />
                             <button 
                               onClick={() => {
-                                if(window.confirm(`Delete user ${user.username}?`)) {
-                                  deleteUserMutation.mutate(user._id);
+                                if(window.confirm(`Ban user ${user.username}?`)) {
+                                  banUserMutation.mutate(user._id);
                                 }
                               }}
                               className="w-full text-left px-3 py-2 text-sm text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded flex items-center gap-2"
                             >
-                              <FiTrash2 /> Delete User
+                              <FiUserX /> Ban User
                             </button>
                          </div>
                        </div>

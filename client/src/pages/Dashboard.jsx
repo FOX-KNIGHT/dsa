@@ -8,11 +8,11 @@ import {
   FiTarget, FiCheckCircle, FiClock, FiTrendingUp,
 } from "react-icons/fi";
 import { api } from "../lib/api";
-import { USE_MOCK, mockChallenges, mockDashboardSummary, mockProfileStats } from "../lib/mockData";
 import { useAuth } from "../context/useAuth";
 import SkeletonCard from "../components/SkeletonCard";
 import EmptyState from "../components/EmptyState";
 import ChallengeCard from "../components/Card";
+
 
 /* ── helpers ─────────────────────────────────── */
 const getGreeting = () => {
@@ -57,34 +57,24 @@ const Dashboard = () => {
   const challengesQ = useQuery({
     queryKey: ["dash-challenges", filters],
     queryFn: async () => {
-      if (USE_MOCK) {
-        let f = [...mockChallenges];
-        if (filters.search) f = f.filter(c => c.title.toLowerCase().includes(filters.search.toLowerCase()));
-        if (filters.difficulty) f = f.filter(c => c.difficulty === filters.difficulty);
-        return f.slice(0, filters.limit);
-      }
-      try {
-        const r = await api.get(`/api/challenges?${buildQS(filters)}`);
-        return r.data.data?.length ? r.data.data : mockChallenges.slice(0, filters.limit);
-      } catch { return mockChallenges.slice(0, filters.limit); }
+      const r = await api.get(`/api/challenges?${buildQS(filters)}`);
+      return r.data.data || [];
     },
   });
 
   const summaryQ = useQuery({
     queryKey: ["dash-summary"],
     queryFn: async () => {
-      if (USE_MOCK) return mockDashboardSummary;
-      try { const r = await api.get("/api/dashboard/summary"); return r.data.data || mockDashboardSummary; }
-      catch { return mockDashboardSummary; }
+      const r = await api.get("/api/dashboard/summary");
+      return r.data.data || {};
     },
   });
 
   const profileQ = useQuery({
     queryKey: ["dash-profile"],
     queryFn: async () => {
-      if (USE_MOCK) return mockProfileStats;
-      try { const r = await api.get("/api/profile/stats"); return r.data.data || mockProfileStats; }
-      catch { return mockProfileStats; }
+      const r = await api.get("/api/profile/stats");
+      return r.data.data || {};
     },
   });
 
@@ -94,6 +84,7 @@ const Dashboard = () => {
       try { const r = await api.get("/api/sets"); return r.data.data || []; } catch { return []; }
     },
   });
+
 
   /* ── derived ─────────────────────────────── */
   const summary  = summaryQ.data;

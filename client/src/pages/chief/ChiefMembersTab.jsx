@@ -4,7 +4,7 @@ import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FiUsers, FiSearch, FiAlertTriangle, FiX, FiAward, FiEdit2 } from 'react-icons/fi';
 import BaseCard from '../../components/BaseCard';
-import ProfilePopover from '../../components/ProfilePopover';
+import MemberHoverCard from '../../components/MemberHoverCard';
 import { api } from '../../lib/api';
 
 const ChiefMembersTab = ({ clan }) => {
@@ -15,14 +15,6 @@ const ChiefMembersTab = ({ clan }) => {
   const [warnMessage, setWarnMessage] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
-
-  const membersQuery = useQuery({
-    queryKey: ['chief-members', clan?._id],
-    queryFn: async () => {
-      return clan.members || [];
-    },
-    enabled: !!clan
-  });
 
   const levelMutation = useMutation({
     mutationFn: async ({ userId, level }) => {
@@ -42,23 +34,24 @@ const ChiefMembersTab = ({ clan }) => {
       return res.data;
     },
     onSuccess: () => {
-      toast.success('Warning sent to member');
+      toast.success('Warning sent to member via email');
       queryClient.invalidateQueries(['chief-clan-info']);
       setWarnModal({ open: false, user: null });
       setWarnMessage('');
+    },
+    onError: (err) => {
+      toast.error(err?.response?.data?.message || 'Failed to send warning');
     }
   });
 
   if (!clan) return null;
 
-  const filteredMembers = (membersQuery.data || []).filter(member => {
-    const matchesSearch = member.username.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                          (member.regNo && member.regNo.toLowerCase().includes(searchTerm.toLowerCase()));
-    
-    // Mock status logic for filtering
-    const mockStatus = member.status || (Math.random() > 0.3 ? 'Active' : 'Inactive');
-    const memberStatus = member.status === 'Warned' ? 'Warned' : mockStatus;
+  const members = clan.members || [];
 
+  const filteredMembers = members.filter(member => {
+    const matchesSearch = member.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                          (member.regNo && member.regNo.toLowerCase().includes(searchTerm.toLowerCase()));
+    const memberStatus = member.status || 'Active';
     if (statusFilter === 'All') return matchesSearch;
     return matchesSearch && memberStatus === statusFilter;
   });
@@ -100,7 +93,7 @@ const ChiefMembersTab = ({ clan }) => {
               <th className="p-4 pl-6">Member</th>
               <th className="p-4">Reg No</th>
               <th className="p-4">Level</th>
-              <th className="p-4">Progress</th>
+              <th className="p-4">Solved</th>
               <th className="p-4">Stats</th>
               <th className="p-4">Status</th>
               <th className="p-4 text-right pr-6">Action</th>
@@ -109,9 +102,9 @@ const ChiefMembersTab = ({ clan }) => {
           <tbody>
             {filteredMembers.map((user, i) => {
               const isWarned = user.status === 'Warned';
-              const isActive = user.status !== 'Warned' && user.status !== 'Inactive'; // Mock
-              const solved = Math.floor(Math.random() * 5);
-              const progressPct = (solved / 5) * 100;
+              const isInactive = user.status === 'Inactive';
+              const isActive = !isWarned && !isInactive;
+              const solved = user.solvedProblems || 0;
 
               return (
                 <motion.tr 
@@ -129,9 +122,10 @@ const ChiefMembersTab = ({ clan }) => {
                       <div className={`absolute -bottom-1 -right-1 w-3 h-3 rounded-full border-2 border-[#0f1115] ${isActive ? 'bg-green-500 animate-pulse' : isWarned ? 'bg-red-500' : 'bg-gray-500'}`} />
                     </div>
                     <div>
-                      <ProfilePopover user={user}>
+                      {/* MemberHoverCard replaces ProfilePopover — click opens full profile */}
+                      <MemberHoverCard userId={user._id} username={user.username}>
                         <span className="cursor-pointer hover:text-blue-400 transition-colors block">{user.username}</span>
-                      </ProfilePopover>
+                      </MemberHoverCard>
                       <span className="text-[10px] text-tertiary uppercase">{user.email}</span>
                     </div>
                   </td>
@@ -146,21 +140,10 @@ const ChiefMembersTab = ({ clan }) => {
                       <FiEdit2 size={10} className="opacity-0 group-hover:opacity-100 transition-opacity" />
                     </button>
                   </td>
-                  <td className="p-4 w-48">
-                    <div className="flex justify-between text-[10px] font-bold text-secondary mb-1">
-                      <span>Set</span>
-                      <span>{solved}/5</span>
-                    </div>
-                    <div className="h-1.5 w-full bg-black/40 rounded-full overflow-hidden">
-                      <motion.div 
-                        initial={{ width: 0 }} animate={{ width: `${progressPct}%` }}
-                        className={`h-full ${progressPct === 100 ? 'bg-green-400' : 'bg-blue-400'}`}
-                      />
-                    </div>
-                  </td>
+                  <td className="p-4 text-sm text-secondary font-mono font-bold">{solved} solved</td>
                   <td className="p-4 text-xs font-bold">
                     <div className="flex flex-col gap-1 text-secondary">
-                      <span className="flex items-center gap-1 text-yellow-400"><FiAward size={12}/> {user.points || 0}</span>
+                      <span className="flex items-center gap-1 text-yellow-400"><FiAward size={12}/> {user.points || 0} XP</span>
                       <span>🔥 {user.streak || 0} days</span>
                     </div>
                   </td>
@@ -218,10 +201,10 @@ const ChiefMembersTab = ({ clan }) => {
                   <button onClick={() => setLevelModal({ open: false, user: null })} className="px-4 py-2 text-sm text-secondary hover:text-white">Cancel</button>
                   <button 
                     onClick={() => levelMutation.mutate({ userId: levelModal.user._id, level: selectedLevel })}
-                    disabled={levelMutation.isLoading}
+                    disabled={levelMutation.isPending}
                     className="btn-primary px-4 py-2 text-sm"
                   >
-                    {levelMutation.isLoading ? 'Saving...' : 'Save Changes'}
+                    {levelMutation.isPending ? 'Saving...' : 'Save Changes'}
                   </button>
                 </div>
               </BaseCard>
@@ -241,7 +224,7 @@ const ChiefMembersTab = ({ clan }) => {
                   <button onClick={() => setWarnModal({ open: false, user: null })} className="text-tertiary hover:text-primary"><FiX size={20} /></button>
                 </div>
                 <div>
-                  <p className="text-sm text-secondary mb-4">This will send an official warning email to <strong className="text-white">{warnModal.user.username}</strong> and flag their status.</p>
+                  <p className="text-sm text-secondary mb-4">This will send an official warning email to <strong className="text-white">{warnModal.user.username}</strong> ({warnModal.user.email}) and flag their status.</p>
                   <textarea 
                     className="field-textarea text-sm" 
                     rows="3" 
@@ -254,10 +237,10 @@ const ChiefMembersTab = ({ clan }) => {
                   <button onClick={() => setWarnModal({ open: false, user: null })} className="px-4 py-2 text-sm text-secondary hover:text-white">Cancel</button>
                   <button 
                     onClick={() => warnMutation.mutate({ userId: warnModal.user._id, message: warnMessage })}
-                    disabled={warnMutation.isLoading || !warnMessage}
+                    disabled={warnMutation.isPending || !warnMessage}
                     className="btn-primary px-4 py-2 text-sm !bg-red-500 hover:!bg-red-600 shadow-[0_0_15px_rgba(239,68,68,0.3)]"
                   >
-                    {warnMutation.isLoading ? 'Sending...' : 'Send Warning Email'}
+                    {warnMutation.isPending ? 'Sending...' : 'Send Warning Email'}
                   </button>
                 </div>
               </BaseCard>

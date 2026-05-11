@@ -24,11 +24,8 @@ const ClanChiefPanel = () => {
   const chiefQuery = useQuery({
     queryKey: ['chief-clan-info'],
     queryFn: async () => {
-      // Fetch the clan where this user is chief
-      const res = await api.get('/api/auth/me'); // Get user profile to find their clan ID
-      if (!res.data.data.clan) throw new Error('Not assigned to a clan');
-      const clanRes = await api.get(`/api/clans/${res.data.data.clan._id || res.data.data.clan}`);
-      return clanRes.data.data;
+      const res = await api.get('/api/clans/mine');
+      return res.data.data;
     }
   });
 

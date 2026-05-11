@@ -1,244 +1,216 @@
 import React, { useMemo, useRef, useState } from "react";
+import { useParams, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import {
-  FiCalendar, FiDownload, FiX, FiZap, FiActivity,
-} from "react-icons/fi";
-import { toPng } from "html-to-image";
-import saveAs from "file-saver";
+import { FiActivity, FiCpu, FiArrowRight, FiCalendar, FiZap, FiMapPin, FiLink, FiGithub, FiTwitter } from "react-icons/fi";
 import { api } from "../lib/api";
-import { USE_MOCK, mockProfileStats } from "../lib/mockData";
 import { useAuth } from "../context/useAuth";
 import SkeletonCard from "../components/SkeletonCard";
+import ProfileSidebar from "../components/ProfileSidebar";
+import ActivityHeatmap from "../components/ActivityHeatmap";
+
+const getGreeting = () => {
+  const h = new Date().getHours();
+  if (h >= 5 && h < 12) return "Good Morning";
+  if (h >= 12 && h < 17) return "Good Afternoon";
+  if (h >= 17 && h < 21) return "Good Evening";
+  return "Good Night";
+};
 
 const fd = (delay = 0) => ({
-  initial: { opacity: 0, scale: 0.95, y: 20 },
-  animate: { opacity: 1, scale: 1, y: 0 },
-  transition: { duration: 0.5, delay, ease: [0.16, 1, 0.3, 1] },
+  initial: { opacity: 0, y: 14 },
+  animate: { opacity: 1, y: 0 },
+  transition: { duration: 0.4, delay, ease: "easeOut" },
 });
+
+const DiffBar = ({ label, solved, total, color }) => {
+  const pct = total > 0 ? (solved / total) * 100 : 0;
+  return (
+    <div className="space-y-1">
+      <div className="flex justify-between items-center">
+        <span className="text-[10px] font-black tracking-widest uppercase" style={{ color }}>{label}</span>
+        <span className="text-[10px] font-mono text-tertiary">{solved}<span className="text-tertiary/50">/{total}</span> <span className="text-white/20 ml-1">{Math.round(pct)}%</span></span>
+      </div>
+      <div className="h-1.5 rounded-full bg-white/[0.05] overflow-hidden">
+        <motion.div className="h-full rounded-full"
+          style={{ background: color, boxShadow: `0 0 8px ${color}55` }}
+          initial={{ width: 0 }}
+          animate={{ width: `${pct}%` }}
+          transition={{ duration: 1.2, ease: "easeOut" }} />
+      </div>
+    </div>
+  );
+};
 
 const Profile = () => {
   const { user } = useAuth();
-  const cardRef = useRef(null);
-  const [isExporting, setIsExporting] = useState(false);
+  const { username } = useParams();
 
   const profileQ = useQuery({
-    queryKey: ["profile-stats"],
+    queryKey: ["full-profile-stats", username || "me"],
     queryFn: async () => {
-      if (USE_MOCK) return mockProfileStats;
-      const res = await api.get("/api/profile/stats");
+      const endpoint = username 
+        ? `/api/profile/username/${username}` 
+        : `/api/profile/stats`;
+      const res = await api.get(endpoint);
       return res.data.data;
     },
+    refetchInterval: 10000,
   });
 
-  const stats = profileQ.data || {};
-  const currentXP = stats.totalPoints || 0;
-  const level = Math.floor(currentXP / 500) + 1;
-  const xpInLevel = currentXP % 500;
-  const xpPct = (xpInLevel / 500) * 100;
+  const subsQ = useQuery({
+    queryKey: ["full-profile-submissions", username || "me"],
+    queryFn: async () => {
+      const endpoint = username 
+        ? `/api/submissions/user/${username}?limit=100` 
+        : `/api/submissions/my-submissions?limit=100`;
+      const res = await api.get(endpoint);
+      return res.data.data || [];
+    },
+    refetchInterval: 10000,
+  });
 
-  const handleExport = async () => {
-    if (!cardRef.current) return;
-    setIsExporting(true);
-    try {
-      await new Promise(r => setTimeout(r, 100));
-      const url = await toPng(cardRef.current, {
-        cacheBust: true,
-        backgroundColor: "#050507",
-        pixelRatio: 2,
-        style: {
-          borderRadius: "0px",
-        }
-      });
-      saveAs(url, `${user?.username || "user"}-identity-card.png`);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setIsExporting(false);
-    }
-  };
+  const submissions = subsQ.data || [];
 
-  if (profileQ.isLoading) {
+  const recentSubs = useMemo(() => {
+    return [...submissions].sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt)).slice(0, 8);
+  }, [submissions]);
+
+  if (profileQ.isLoading || subsQ.isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <SkeletonCard className="w-full max-w-2xl h-[500px] !rounded-3xl" />
+      <div className="flex flex-col lg:flex-row gap-6 p-4 md:p-8">
+        <SkeletonCard className="w-full lg:w-72 h-[600px] !rounded-2xl shrink-0" />
+        <div className="flex-1 space-y-6">
+          <SkeletonCard className="w-full h-32 !rounded-2xl" />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <SkeletonCard className="w-full h-48 !rounded-2xl" />
+            <SkeletonCard className="w-full h-48 !rounded-2xl" />
+          </div>
+        </div>
       </div>
     );
   }
 
-  const difficulty = stats.difficultyBreakdown || {
-    easy: { solved: 0, total: 0 },
-    medium: { solved: 0, total: 0 },
-    hard: { solved: 0, total: 0 },
-  };
+  const profile = profileQ.data || {};
+  const displayUser = username ? profile : user;
+
+
+  const easy = profile?.difficultyBreakdown?.easy ?? { solved: 0, total: 0 };
+  const medium = profile?.difficultyBreakdown?.medium ?? { solved: 0, total: 0 };
+  const hard = profile?.difficultyBreakdown?.hard ?? { solved: 0, total: 0 };
+
+  const solved = profile?.acceptedCount ?? 0;
+  const total = (easy.total + medium.total + hard.total) || 1;
+  const solvedPct = Math.round((solved / total) * 100);
 
   return (
-    <div className="flex flex-col items-center justify-center py-10 px-4">
-      <div className="w-full max-w-3xl flex justify-end mb-6">
-        <button
-          onClick={handleExport}
-          disabled={isExporting}
-          className="btn-secondary flex items-center gap-2 text-xs font-black uppercase tracking-widest px-6 py-2.5 !rounded-xl"
-        >
-          <FiDownload /> {isExporting ? "Exporting..." : "Download Identity"}
-        </button>
-      </div>
+    <div className="flex flex-col lg:flex-row gap-8 pb-12">
+      
+      <ProfileSidebar user={displayUser} profile={profile} badges={profile?.badges} />
 
-      <motion.div
-        ref={cardRef}
-        {...fd(0)}
-        className="relative w-full max-w-3xl overflow-hidden rounded-[2.5rem] border border-white/[0.08] bg-[#09090b] shadow-2xl"
-        style={{
-          boxShadow: "0 0 80px rgba(0,0,0,0.5), inset 0 0 40px rgba(var(--accent-rgb), 0.05)",
-        }}
-      >
-        {/* Grid Background Overlay */}
-        <div className="absolute inset-0 opacity-[0.03] pointer-events-none" 
-          style={{ backgroundImage: "radial-gradient(#fff 1px, transparent 1px)", backgroundSize: "24px 24px" }} 
-        />
-        
-        {/* Top Gradient Bar */}
-        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-accent to-transparent opacity-50" />
-
-        <div className="relative p-8 md:p-12">
-          {/* Header Section */}
-          <div className="flex flex-col md:flex-row items-center md:items-start gap-8 mb-10">
-            {/* Avatar Box */}
-            <div className="relative group">
-              <div className="w-32 h-32 md:w-40 md:h-40 rounded-3xl bg-black border-2 border-accent/20 flex items-center justify-center text-5xl font-black text-white relative overflow-hidden">
-                <div className="absolute inset-0 bg-gradient-to-br from-accent/10 to-transparent opacity-50" />
-                <span className="relative z-10">{user?.username?.[0]?.toUpperCase() || "C"}</span>
-                {/* Scanline effect */}
-                <div className="absolute inset-0 bg-gradient-to-b from-transparent via-accent/5 to-transparent h-1/2 w-full animate-scan pointer-events-none" />
-              </div>
-              {/* Status Indicator */}
-              <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-green-500 rounded-full border-4 border-[#09090b] shadow-[0_0_15px_rgba(34,197,94,0.5)]" />
-            </div>
-
-            {/* User Details */}
-            <div className="flex-1 text-center md:text-left pt-2">
-              <div className="flex flex-col md:flex-row items-center gap-4 mb-2">
-                <h1 className="text-4xl md:text-5xl font-black text-white tracking-tight">{user?.username || "Operative"}</h1>
-                <div className="p-1.5 rounded-full bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors cursor-pointer hidden md:flex">
-                  <FiX className="text-tertiary" size={16} />
-                </div>
-              </div>
-              <p className="text-lg italic text-secondary mb-6 font-medium">"Expert Algorithmist"</p>
-              
-              <div className="flex flex-wrap justify-center md:justify-start gap-3">
-                <div className="px-4 py-1.5 rounded-lg bg-accent/10 border border-accent/20 text-[10px] font-black uppercase tracking-widest text-accent flex items-center gap-2">
-                  <div className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
-                  {user?.role === "admin" ? "ADMINISTRATOR" : user?.role === "chief" ? "CLAN CHIEF" : "ELITE CODER"}
-                </div>
-                <div className="px-4 py-1.5 rounded-lg bg-blue-500/10 border border-blue-500/20 text-[10px] font-black uppercase tracking-widest text-blue-400 flex items-center gap-2">
-                  <FiActivity size={12} />
-                  ALPHA CODERS
-                </div>
-                <div className="px-4 py-1.5 rounded-lg bg-purple-500/10 border border-purple-500/20 text-[10px] font-black uppercase tracking-widest text-purple-400 flex items-center gap-2">
-                  <FiZap size={12} />
-                  GDG SOA
-                </div>
-              </div>
+      <div className="flex-1 min-w-0 space-y-6">
+        <motion.div {...fd(0.1)} className="relative overflow-hidden rounded-2xl p-6 border border-white/[0.08]"
+          style={{ background: "linear-gradient(135deg, rgba(15,15,22,1) 0%, rgba(20,15,35,1) 100%)" }}>
+          <div className="absolute top-0 right-0 p-4 text-right z-10">
+            <div className="px-3 py-1.5 rounded-full bg-accent/20 border border-accent/30 flex items-center gap-2">
+              <FiZap className="text-accent text-sm" />
+              <span className="text-xs font-black text-white">{profile.totalPoints || 0} XP</span>
             </div>
           </div>
-
-          <div className="w-full h-px bg-white/[0.05] mb-10" />
-
-          {/* Stats Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
-            {/* Left Side: Level & Main Stats */}
-            <div className="space-y-8">
-              {/* Level Section */}
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-tertiary mb-3">Current Level</p>
-                <div className="flex items-baseline gap-3 mb-3">
-                  <span className="text-4xl font-black text-white">Lv. {level}</span>
-                  <span className="text-sm font-mono text-tertiary">{xpInLevel} <span className="text-white/20">/</span> 500 XP</span>
-                </div>
-                <div className="h-2 w-full bg-white/[0.03] border border-white/5 rounded-full overflow-hidden">
-                  <motion.div 
-                    initial={{ width: 0 }}
-                    animate={{ width: `${xpPct}%` }}
-                    transition={{ duration: 1.5, ease: "easeOut" }}
-                    className="h-full bg-accent shadow-[0_0_15px_rgba(var(--accent-rgb),0.5)]"
-                  />
-                </div>
-              </div>
-
-              {/* Quick Stats */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="p-6 rounded-2xl bg-white/[0.02] border border-white/5 flex flex-col items-center gap-2 group hover:bg-white/[0.04] transition-all">
-                  <div className="w-10 h-10 rounded-xl bg-green-500/10 border border-green-500/20 flex items-center justify-center text-green-400">
-                    <FiTarget size={20} />
-                  </div>
-                  <div className="text-center">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-tertiary">Solved</p>
-                    <p className="text-2xl font-black text-white">{stats.acceptedCount || 0}</p>
-                  </div>
-                </div>
-                <div className="p-6 rounded-2xl bg-white/[0.02] border border-white/5 flex flex-col items-center gap-2 group hover:bg-white/[0.04] transition-all">
-                  <div className="w-10 h-10 rounded-xl bg-yellow-500/10 border border-yellow-500/20 flex items-center justify-center text-yellow-400">
-                    <FiActivity size={20} />
-                  </div>
-                  <div className="text-center">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-tertiary">Streak</p>
-                    <p className="text-2xl font-black text-white">{stats.streak || 0} <span className="text-xs text-tertiary font-bold">Days</span></p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Right Side: Performance Matrix */}
-            <div className="space-y-8">
-              <div className="flex items-center gap-2 text-tertiary">
-                <FiZap size={14} className="text-accent" />
-                <p className="text-[10px] font-black uppercase tracking-[0.2em]">Performance Matrix</p>
-              </div>
-
-              <div className="space-y-6">
-                {[
-                  { label: "EASY", value: difficulty.easy.solved, total: Math.max(difficulty.easy.total, 1), color: "text-green-400", bg: "bg-green-500" },
-                  { label: "MEDIUM", value: difficulty.medium.solved, total: Math.max(difficulty.medium.total, 1), color: "text-yellow-400", bg: "bg-yellow-500" },
-                  { label: "HARD", value: difficulty.hard.solved, total: Math.max(difficulty.hard.total, 1), color: "text-red-400", bg: "bg-red-500" },
-                ].map((item) => (
-                  <div key={item.label} className="space-y-2">
-                    <div className="flex justify-between text-[10px] font-black tracking-widest">
-                      <span className={item.color}>{item.label}</span>
-                      <span className="text-tertiary font-mono">{item.value} <span className="text-white/20">/</span> {item.total === 1 && item.value === 0 ? 0 : item.total}</span>
-                    </div>
-                    <div className="h-1.5 w-full bg-white/[0.03] border border-white/5 rounded-full overflow-hidden">
-                      <motion.div 
-                        initial={{ width: 0 }}
-                        animate={{ width: `${(item.value / item.total) * 100}%` }}
-                        transition={{ duration: 1.5, ease: "easeOut", delay: 0.2 }}
-                        className={`h-full ${item.bg} opacity-80`}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+          <div className="relative z-10">
+            {!username && (
+              <span className="inline-block px-3 py-1 rounded-full border border-accent/20 bg-accent/10 text-[9px] font-black uppercase tracking-widest text-accent mb-3">
+                {getGreeting()}
+              </span>
+            )}
+            <h1 className="text-3xl md:text-4xl font-black text-white mb-2">{displayUser?.username}</h1>
+            <p className="text-sm text-secondary max-w-md">
+                {username ? `Viewing ${displayUser?.username}'s public profile.` : "Track your journey, analyze your performance, and dominate the algorithm arena."}
+            </p>
           </div>
+        </motion.div>
 
-          <div className="w-full h-px bg-white/[0.05] my-10" />
-
-          {/* Footer Info */}
-          <div className="flex flex-col md:flex-row justify-between gap-8">
-            <div className="space-y-3">
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-tertiary">Metadata</p>
-              <div className="flex items-center gap-2 text-secondary text-sm font-medium">
-                <FiCalendar className="text-accent" />
-                <span>Activated {new Date(user?.createdAt || Date.now()).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</span>
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          <motion.div {...fd(0.15)} className="rounded-2xl border border-white/[0.06] bg-[#0c0c14] p-5 flex flex-col">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xs font-black uppercase tracking-widest text-primary">Algorithm Mastery</h2>
+              <div className="w-12 h-12 rounded-full flex items-center justify-center relative">
+                 <svg viewBox="0 0 36 36" className="w-full h-full transform -rotate-90">
+                    <path className="text-white/5" strokeWidth="4" stroke="currentColor" fill="none"
+                      d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                    <path className="text-accent transition-all duration-1000 ease-out" strokeWidth="4" strokeDasharray={`${solvedPct}, 100`} strokeLinecap="round" stroke="currentColor" fill="none"
+                      d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                 </svg>
+                 <div className="absolute inset-0 flex items-center justify-center text-[10px] font-black text-white">{solvedPct}%</div>
               </div>
             </div>
             
-            <div className="space-y-3 text-center md:text-right">
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-tertiary">Recent Honors</p>
-              <p className="text-sm italic text-tertiary font-medium">No honors accumulated yet.</p>
+            <div className="space-y-4 mt-auto">
+              <DiffBar label="Easy" solved={easy.solved} total={easy.total} color="#22c55e" />
+              <DiffBar label="Medium" solved={medium.solved} total={medium.total} color="#eab308" />
+              <DiffBar label="Hard" solved={hard.solved} total={hard.total} color="#ef4444" />
             </div>
-          </div>
+          </motion.div>
+
+          <motion.div {...fd(0.2)} className="rounded-2xl border border-white/[0.06] bg-[#0c0c14] p-5 overflow-hidden flex flex-col justify-center">
+             <ActivityHeatmap submissions={submissions} />
+          </motion.div>
         </div>
-      </motion.div>
+
+        <motion.div {...fd(0.25)} className="rounded-2xl border border-white/[0.06] bg-[#0c0c14] overflow-hidden">
+          <div className="p-4 border-b border-white/[0.06] flex items-center justify-between">
+             <h2 className="text-xs font-black uppercase tracking-widest text-primary flex items-center gap-2">
+               <FiActivity className="text-accent" /> Recent Submissions
+             </h2>
+             {!username && (
+               <Link to="/dashboard" className="text-[10px] font-bold text-accent hover:text-accent/80 uppercase tracking-wider flex items-center gap-1">
+                 Go to Arena <FiArrowRight size={10} />
+               </Link>
+             )}
+          </div>
+          
+          {recentSubs.length === 0 ? (
+            <div className="p-10 text-center">
+              <FiCpu size={32} className="text-white/10 mx-auto mb-3" />
+              <p className="text-xs font-bold text-tertiary uppercase tracking-widest">No recent submissions</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-white/[0.04]">
+              {recentSubs.map((sub, i) => {
+                const ac = sub.status === "Accepted";
+                const wa = sub.status === "Rejected";
+                const badgeCls = ac
+                  ? "bg-green-500/10 text-green-400 border-green-500/20"
+                  : wa
+                    ? "bg-red-500/10 text-red-400 border-red-500/20"
+                    : "bg-yellow-500/10 text-yellow-400 border-yellow-500/20";
+                const badgeLabel = ac ? "ACCEPTED" : wa ? "REJECTED" : "PENDING";
+
+                return (
+                  <Link key={sub._id + i} to={`/submission/${sub._id}`} className="flex items-center justify-between p-4 hover:bg-white/[0.02] transition-colors group">
+                    <div className="min-w-0 pr-4">
+                      <p className="text-sm font-bold text-primary group-hover:text-accent transition-colors truncate">
+                        {sub.challengeId?.title || "Unknown Challenge"}
+                      </p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="text-[10px] font-mono text-tertiary">
+                          {new Date(sub.submittedAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                        </span>
+                        <span className="text-[10px] text-tertiary">•</span>
+                        <span className="text-[10px] font-black uppercase tracking-widest text-secondary">{sub.language}</span>
+                      </div>
+                    </div>
+                    <span className={`text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-md border shrink-0 ${badgeCls}`}>
+                      {badgeLabel}
+                    </span>
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+        </motion.div>
+
+      </div>
     </div>
   );
 };

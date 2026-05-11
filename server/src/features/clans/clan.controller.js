@@ -3,7 +3,30 @@ const User = require('../users/User.model');
 const Submission = require('../submissions/Submission.model');
 const { sendSuccess } = require('../../../utils/response');
 
-// GET /api/clans — list all active clans
+// GET /api/clans/mine — returns the clan for the authenticated user (member or chief)
+const getMyClan = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+
+    // Find clan where user is chief or a member
+    const clan = await Clan.findOne({
+      $or: [{ chief: userId }, { members: userId }]
+    })
+      .populate('chief', 'username email')
+      .populate('members', 'username email status codingLevel points solvedProblems regNo')
+      .populate('requests', 'username email regNo');
+
+    if (!clan) {
+      return res.status(404).json({ success: false, message: 'You are not assigned to any clan' });
+    }
+
+    return sendSuccess(res, { data: clan });
+  } catch (err) {
+    return next(err);
+  }
+};
+
+
 const getClans = async (req, res, next) => {
   try {
     const clans = await Clan.find({ status: 'active' })
@@ -499,6 +522,7 @@ const removeClanNotice = async (req, res, next) => {
 module.exports = {
   getClans,
   getClan,
+  getMyClan,
   getClanLeaderboard,
   createClan,
   updateClan,

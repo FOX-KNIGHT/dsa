@@ -69,7 +69,12 @@ const ChiefDashboardTab = ({ clan }) => {
   const activeCount = members.filter(m => m.status !== 'Warned' && m.status !== 'Inactive').length;
   const warnedCount = members.filter(m => m.status === 'Warned').length;
   const pendingReviews = clan.requests?.length ?? 0;
-  const completionRate = 68;
+
+  // Compute real completion rate: avg of (solvedProblems / target) across members
+  const TARGET_PROBLEMS = 5;
+  const totalSolved = members.reduce((sum, m) => sum + (m.solvedProblems || 0), 0);
+  const totalPossible = members.length * TARGET_PROBLEMS;
+  const completionRate = totalPossible > 0 ? Math.round((totalSolved / totalPossible) * 100) : 0;
 
   const circleRadius = 40;
   const circleCircumference = 2 * Math.PI * circleRadius;
@@ -167,11 +172,11 @@ const ChiefDashboardTab = ({ clan }) => {
           
           <div className="space-y-3 flex-1 overflow-y-auto pr-2 custom-scrollbar">
             {members.slice(0, 6).map((member, i) => {
-              const isActive = i % 3 !== 0; // mock status
+              const isActive = member.status !== 'Warned' && member.status !== 'Inactive';
               const isWarned = member.status === 'Warned';
-              const solved = Math.floor(Math.random() * 5);
-              const total = 5;
-              const progressPct = (solved / total) * 100;
+              const solved = member.solvedProblems || 0;
+              const total = TARGET_PROBLEMS;
+              const progressPct = total > 0 ? Math.min(100, (solved / total) * 100) : 0;
               
               return (
                 <div key={member._id} className={`flex items-center justify-between p-3 rounded-xl border transition-colors ${isWarned ? 'bg-red-500/10 border-red-500/20' : 'bg-white/[0.02] border-white/5 hover:bg-white/[0.04]'}`}>

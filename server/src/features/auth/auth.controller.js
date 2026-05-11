@@ -11,16 +11,20 @@ const {
   clearRefreshTokenCookie,
 } = require('../../../utils/tokens');
 
-const toAuthPayload = (user, accessToken, isChief = false) => ({
+const toAuthPayload = (user, accessToken, isChief = false, dailyXpAwarded = false) => ({
   _id: user._id,
   username: user.username,
   role: user.role,
+  status: user.status,
+  points: user.points,
   isChief,
+  dailyXpAwarded,
   token: accessToken,
   accessToken,
 });
 
-const issueSession = async (req, res, user, { statusCode = 200, message = 'Success', isChief = false } = {}) => {
+
+const issueSession = async (req, res, user, { statusCode = 200, message = 'Success', isChief = false, dailyXpAwarded = false } = {}) => {
   const accessToken = signAccessToken(user._id);
   const refreshToken = generateRefreshToken();
   const refreshTokenHash = hashToken(refreshToken);
@@ -37,10 +41,11 @@ const issueSession = async (req, res, user, { statusCode = 200, message = 'Succe
 
   return sendSuccess(res, {
     statusCode,
-    data: toAuthPayload(user, accessToken, isChief),
+    data: toAuthPayload(user, accessToken, isChief, dailyXpAwarded),
     message,
   });
 };
+
 
 const register = async (req, res, next) => {
   try {
@@ -76,17 +81,33 @@ const login = async (req, res, next) => {
       throw new Error('Invalid credentials');
     }
 
+    // Daily Login XP: award 50 XP if first login of the day
+    let dailyXpAwarded = false;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const lastLogin = user.lastLoginDate ? new Date(user.lastLoginDate) : null;
+    const isFirstLoginToday = !lastLogin || lastLogin < today;
+
+    if (isFirstLoginToday) {
+      user.points = (user.points || 0) + 50;
+      user.lastLoginDate = new Date();
+      await user.save({ validateBeforeSave: false });
+      dailyXpAwarded = true;
+    }
+
     const Clan = require('../clans/Clan.model');
     const clanWhereChief = await Clan.findOne({ chief: user._id });
 
     return issueSession(req, res, user, {
       message: 'Login successful',
       isChief: !!clanWhereChief,
+      dailyXpAwarded,
     });
   } catch (err) {
     return next(err);
   }
 };
+
 
 const refresh = async (req, res, next) => {
   try {

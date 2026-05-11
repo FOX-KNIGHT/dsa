@@ -265,7 +265,7 @@ const updateSubmissionStatus = async (req, res, next) => {
       updateData,
       { new: true, runValidators: true }
     )
-      .populate('userId', 'username email role')
+      .populate('userId', 'username email role points solvedProblems')
       .populate('challengeId', 'title difficulty points');
 
     if (!submission) {
@@ -285,15 +285,31 @@ const updateSubmissionStatus = async (req, res, next) => {
       },
     });
 
+    // Award XP and increment solved counter when accepted
+    if (status === 'Accepted' && submission.userId?._id) {
+      const User = require('../users/User.model');
+      const challengePoints = submission.challengeId?.points || 0;
+      await User.findByIdAndUpdate(
+        submission.userId._id,
+        {
+          $inc: { points: challengePoints, solvedProblems: 1 },
+        }
+      );
+    }
+
     const { emitEvent } = require('../../../config/socket');
     emitEvent('leaderboard_update', {
       submissionId: submission._id,
       userId: submission.userId?._id,
       status: submission.status,
     });
+    emitEvent('points_update', {
+      userId: submission.userId?._id,
+      status: submission.status,
+    });
 
     if (submission.userId?.email) {
-      const emailUtils = require('../../../utils/email');
+      const { sendEmail } = require('../../../utils/emailService');
       const actionText = status === 'Accepted' ? 'approved' : 'rejected';
       const color = status === 'Accepted' ? '#22c55e' : '#ef4444';
       
@@ -307,17 +323,18 @@ const updateSubmissionStatus = async (req, res, next) => {
           </p>
           <div style="background-color: rgba(255,255,255,0.05); padding: 15px; border-radius: 8px; margin: 20px 0;">
             <p style="margin: 0; font-size: 14px; color: #d1d5db;"><strong>Status:</strong> <span style="color: ${color}; font-weight: bold;">${status}</span></p>
+            ${status === 'Accepted' ? `<p style="margin: 10px 0 0 0; font-size: 14px; color: #d1d5db;"><strong>+${submission.challengeId?.points || 0} XP</strong> has been awarded to your account!</p>` : ''}
             ${feedback ? `<hr style="border-color: #374151; my: 10px;"/><p style="margin: 10px 0 0 0; font-size: 14px; color: #d1d5db;"><strong>Chief's Feedback:</strong><br/><br/><em>"${feedback}"</em></p>` : ''}
           </div>
           <p style="color: #9ca3af; font-size: 14px; margin-top: 30px; text-align: center;">Keep coding and progressing!<br/>- The Algorithm Arena Team</p>
         </div>
       `;
 
-      await emailUtils.sendEmail({
-        to: submission.userId.email,
-        subject: `Code Submission ${status}: ${submission.challengeId?.title || 'Update'}`,
-        html: emailHTML,
-      }).catch(err => console.error('Failed to send review email:', err));
+      await sendEmail(
+        submission.userId.email,
+        `Code Submission ${status}: ${submission.challengeId?.title || 'Update'}`,
+        emailHTML
+      ).catch(err => console.error('Failed to send review email:', err));
     }
 
     return sendSuccess(res, {
@@ -328,6 +345,7 @@ const updateSubmissionStatus = async (req, res, next) => {
     return next(err);
   }
 };
+
 
 module.exports = {
   submitCode,

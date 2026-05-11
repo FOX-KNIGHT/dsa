@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
+import DOMPurify from "dompurify";
 import {
   FiClipboard,
   FiRefreshCw,
@@ -14,95 +15,66 @@ import {
   FiSend,
   FiExternalLink,
   FiCheckCircle,
+  FiZap,
+  FiCheck,
+  FiXCircle,
+  FiMessageSquare,
+  FiUser,
+  FiPlay,
 } from "react-icons/fi";
 
-// CodeMirror Imports
-import CodeMirror from "@uiw/react-codemirror";
-import { javascript } from "@codemirror/lang-javascript";
-import { python } from "@codemirror/lang-python";
-import { java } from "@codemirror/lang-java";
-import { cpp } from "@codemirror/lang-cpp";
-import { EditorView } from "@codemirror/view";
-import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
-import { tags as t } from "@lezer/highlight";
+// Monaco & Shared Assets
+import CodeEditor from "../components/CodeEditor";
+import { LANGUAGE_MAP, LANGUAGE_OPTIONS } from "../constants/languages";
 
 // Local Project Imports
 import SkeletonCard from "../components/SkeletonCard";
 import { api } from "../lib/api";
-import { USE_MOCK, mockChallenges, mockSubmissions } from "../lib/mockData";
 
-// --- THEME & HIGHLIGHT DEFINITIONS ---
+import { useAuth } from "../context/useAuth";
 
-const algoArenaDarkHighlight = HighlightStyle.define([
-  { tag: t.keyword, color: "#bd93f9", fontWeight: "bold" },
-  { tag: t.string, color: "#ff6090" },
-  { tag: t.variableName, color: "#8be9fd" },
-  { tag: t.definition(t.variableName), color: "#f1fa8c" },
-  { tag: t.function(t.variableName), color: "#50fa7b" },
-  { tag: t.comment, color: "#6272a4", fontStyle: "italic" },
-  { tag: t.number, color: "#ffb86c" },
-  { tag: t.operator, color: "#44adff" },
-]);
+// --- JUDGE0 CONFIG ---
+const JUDGE0_URL = import.meta.env.VITE_JUDGE0_API_URL || "https://ce.judge0.com";
 
-const arenaDarkTheme = EditorView.theme(
-  {
-    "&": { color: "white", backgroundColor: "transparent !important" },
-    ".cm-content": {
-      caretColor: "#ff6090",
-      fontFamily: "'Fira Code', 'JetBrains Mono', monospace",
-    },
-    ".cm-gutters": {
-      backgroundColor: "transparent",
-      color: "#4b5563",
-      border: "none",
-    },
-    "&.cm-focused .cm-cursor": { borderLeftColor: "#ff6090" },
-    "&.cm-focused .cm-selectionBackground, ::selection": {
-      backgroundColor: "#ffffff1a",
-    },
-  },
-  { dark: true },
-);
+const b64Encode = (str) =>
+  btoa(
+    encodeURIComponent(str).replace(/%([0-9A-F]{2})/gi, (_, hex) =>
+      String.fromCharCode(parseInt(hex, 16)),
+    ),
+  );
+const b64Decode = (str) => {
+  if (!str) return "";
+  try {
+    return decodeURIComponent(
+      atob(str)
+        .split("")
+        .map((c) => "%" + c.charCodeAt(0).toString(16).padStart(2, "0"))
+        .join(""),
+    );
+  } catch {
+    return str;
+  }
+};
 
-const algoArenaLightHighlight = HighlightStyle.define([
-  { tag: t.keyword, color: "#d73a49", fontWeight: "bold" },
-  { tag: t.string, color: "#005cc5" },
-  { tag: t.variableName, color: "#24292e" },
-  { tag: t.function(t.variableName), color: "#6f42c1" },
-  { tag: t.comment, color: "#6a737d", fontStyle: "italic" },
-  { tag: t.number, color: "#e36209" },
-  { tag: t.operator, color: "#005cc5" },
-]);
-
-const arenaLightTheme = EditorView.theme(
-  {
-    "&": { color: "#24292e", backgroundColor: "white !important" },
-    ".cm-gutters": {
-      backgroundColor: "#f6f8fa",
-      color: "#afb8c1",
-      borderRight: "1px solid #d0d7de",
-    },
-    ".cm-activeLine": { backgroundColor: "#f6f8fa" },
-    "&.cm-focused .cm-selectionBackground, ::selection": {
-      backgroundColor: "#add6ff",
-    },
-  },
-  { dark: false },
-);
-
-const starterByLanguage = {
-  javascript:
-    "function solve(input) {\n  // TODO: implement\n  return input;\n}\n",
-  python: "def solve(data):\n    # TODO: implement\n    return data\n",
-  java: "class Solution {\n    public static void solve() {\n        // TODO: implement\n    }\n}\n",
-  cpp: "#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    // TODO: implement\n    return 0;\n}\n",
+const defaultStarterByLanguage = {
+  javascript: `function main() {\n\n}\n\nmain();\n`,
+  python: `def main():\n    pass\n\nif __name__ == "__main__":\n    main()\n`,
+  java: `public class Main {\n\n    public static void main(String[] args) {\n\n    }\n}\n`,
+  cpp: `#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n\n    return 0;\n}\n`,
+  c: `#include <stdio.h>\n\nint main() {\n\n    return 0;\n}\n`,
 };
 
 const ChallengeDetails = () => {
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
+  const reviewSubmissionId = searchParams.get("review");
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const draftKey = `challenge-draft:${id}`;
+
+  const isReviewer = ["admin", "super-admin", "clan-chief"].includes(user?.role);
+  const isReviewMode = Boolean(reviewSubmissionId) && isReviewer;
 
   const [repoUrl, setRepoUrl] = useState("");
   const [codeByLang, setCodeByLang] = useState({});
@@ -110,6 +82,22 @@ const ChallengeDetails = () => {
   const [submitting, setSubmitting] = useState(false);
   const [leftTab, setLeftTab] = useState("description");
   const [rightTab, setRightTab] = useState("code"); // 'code', 'ai', 'tests'
+
+  // Input / Output panel state (Judge0)
+  const [bottomTab, setBottomTab] = useState("input");
+  const [stdin, setStdin] = useState("");
+  const [runOutput, setRunOutput] = useState(null);
+  const [running, setRunning] = useState(false);
+
+  // Review mode state
+  const [reviewComment, setReviewComment] = useState("");
+  const [showRejectForm, setShowRejectForm] = useState(false);
+  const [grading, setGrading] = useState(false);
+  
+  // Resizer state
+  const [leftWidth, setLeftWidth] = useState(45);
+  const containerRef = useRef(null);
+  
   const [isDark, setIsDark] = useState(
     document.documentElement.getAttribute("data-theme") === "dark",
   );
@@ -129,7 +117,26 @@ const ChallengeDetails = () => {
     return () => observer.disconnect();
   }, []);
 
-  const codeSnippet = codeByLang[language] || "";
+  const handleMouseDown = (e) => {
+    e.preventDefault();
+    const handleMouseMove = (e) => {
+      if (!containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      let newWidth = ((e.clientX - rect.left) / rect.width) * 100;
+      if (newWidth < 20) newWidth = 20;
+      if (newWidth > 80) newWidth = 80;
+      setLeftWidth(newWidth);
+    };
+    const handleMouseUp = () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  };
+
+  const codeSnippet =
+    codeByLang[language] ?? defaultStarterByLanguage[language] ?? "";
   const setCodeSnippet = (val) => {
     const newVal =
       typeof val === "function" ? val(codeByLang[language] || "") : val;
@@ -164,46 +171,65 @@ const ChallengeDetails = () => {
     );
   }, [draftKey, repoUrl, codeByLang, language]);
 
-  // Logic: Editor Extensions
-  const editorExtensions = useMemo(() => {
-    const langExt = {
-      javascript: [javascript({ jsx: true })],
-      python: [python()],
-      java: [java()],
-      cpp: [cpp()],
-    }[language] || [javascript()];
-
-    const themeExt = isDark
-      ? [arenaDarkTheme, syntaxHighlighting(algoArenaDarkHighlight)]
-      : [arenaLightTheme, syntaxHighlighting(algoArenaLightHighlight)];
-
-    return [...langExt, ...themeExt];
-  }, [language, isDark]);
-
   const challengeQuery = useQuery({
     queryKey: ["challenge", id],
     queryFn: async () => {
-      if (USE_MOCK) {
-        const found = mockChallenges.find((c) => c._id === id);
-        if (!found) throw new Error("Challenge not found");
-        return found;
-      }
       const res = await api.get(`/api/challenges/${id}`);
       return res.data.data;
     },
   });
 
+
   const historyQuery = useQuery({
     queryKey: ["my-submissions", id],
+    enabled: !isReviewMode,
     queryFn: async () => {
-      if (USE_MOCK)
-        return mockSubmissions.filter((s) => s.challengeId._id === id);
       const res = await api.get(
         `/api/submissions/my-submissions?challengeId=${id}&limit=8`,
       );
       return res.data.data || [];
     },
   });
+
+
+  // Review mode: fetch the submission being reviewed
+  const reviewQuery = useQuery({
+    queryKey: ["review-submission", reviewSubmissionId],
+    enabled: isReviewMode && Boolean(reviewSubmissionId),
+    queryFn: async () => {
+      const res = await api.get(`/api/submissions/${reviewSubmissionId}`);
+      return res.data.data;
+    },
+  });
+
+  // Pre-load submitted code into editor when in review mode
+  useEffect(() => {
+    if (!isReviewMode || !reviewQuery.data) return;
+    const sub = reviewQuery.data;
+    if (sub.code) {
+      setCodeByLang({ [sub.language || "javascript"]: sub.code });
+      setLanguage(sub.language || "javascript");
+    }
+  }, [isReviewMode, reviewQuery.data]);
+
+  const handleGrade = async (status) => {
+    setGrading(true);
+    try {
+      await api.put(`/api/submissions/${reviewSubmissionId}`, {
+        status,
+        reviewComment: status === "Rejected" ? reviewComment.trim() || undefined : undefined,
+      });
+      toast.success(`Submission ${status.toLowerCase()}`);
+      queryClient.invalidateQueries({ queryKey: ["admin-submissions"] });
+      queryClient.invalidateQueries({ queryKey: ["chief-submissions"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
+      navigate(-1);
+    } catch (err) {
+      toast.error(err.response?.data?.message || "Failed to grade submission");
+    } finally {
+      setGrading(false);
+    }
+  };
 
   const codeStats = useMemo(
     () => ({
@@ -213,8 +239,7 @@ const ChallengeDetails = () => {
     [codeSnippet],
   );
 
-  const handleInsertStarter = () =>
-    setCodeSnippet(starterByLanguage[language] || starterByLanguage.javascript);
+  const handleInsertStarter = () => setCodeSnippet(defaultStarterByLanguage[language] ?? defaultStarterByLanguage.javascript);
 
   const handleCopyCode = async () => {
     if (!codeSnippet.trim()) return toast.error("No code to copy");
@@ -233,21 +258,59 @@ const ChallengeDetails = () => {
     toast.success("Draft cleared");
   };
 
+  // --- JUDGE0 RUN LOGIC ---
+  const handleRun = async () => {
+    if (!codeSnippet.trim()) return toast.error("No code to run.");
+    setRunning(true);
+    setRightTab("tests"); // Switch to tests tab to see results
+    setRunOutput(null);
+    try {
+      const res = await fetch(
+        `${JUDGE0_URL}/submissions?wait=true&base64_encoded=true`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            language_id: LANGUAGE_MAP[language]?.id ?? 63,
+            source_code: b64Encode(codeSnippet),
+            stdin: b64Encode(stdin),
+          }),
+        },
+      );
+
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`Execution error ${res.status}: ${text}`);
+      }
+
+      const result = await res.json();
+      setRunOutput({
+        stdout: b64Decode(result.stdout),
+        stderr: b64Decode(result.stderr),
+        compile_output: b64Decode(result.compile_output),
+        status: result.status,
+        time: result.time,
+        memory: result.memory,
+      });
+    } catch (err) {
+      toast.error(err.message || "Failed to execute code.");
+      setRunOutput({ error: err.message || "Execution engine unreachable." });
+    } finally {
+      setRunning(false);
+    }
+  };
+
   const handleSubmit = async () => {
     if (!repoUrl && !codeSnippet.trim())
       return toast.error("Please provide code or a GitHub link.");
     setSubmitting(true);
     try {
-      if (USE_MOCK) {
-        await new Promise((r) => setTimeout(r, 600));
-      } else {
-        await api.post("/api/submissions", {
-          challengeId: id,
-          repositoryUrl: repoUrl.trim() || undefined,
-          code: codeSnippet.trim() || undefined,
-          language,
-        });
-      }
+      await api.post("/api/submissions", {
+        challengeId: id,
+        repositoryUrl: repoUrl.trim() || undefined,
+        code: codeSnippet.trim() || undefined,
+        language,
+      });
       toast.success("Solution submitted.");
       setRepoUrl("");
       setCodeByLang({});
@@ -259,6 +322,16 @@ const ChallengeDetails = () => {
       setSubmitting(false);
     }
   };
+
+
+  // Sanitize the HTML description
+  const sanitizedDescription = useMemo(() => {
+    if (!challengeQuery.data?.description) return "";
+    return DOMPurify.sanitize(challengeQuery.data.description, {
+      ADD_TAGS: ["img"],
+      ADD_ATTR: ["target"],
+    });
+  }, [challengeQuery.data?.description]);
 
   if (challengeQuery.isLoading)
     return (
@@ -332,9 +405,13 @@ const ChallengeDetails = () => {
       </div>
 
       {/* Main Split Layout */}
-      <div className="flex flex-col lg:flex-row gap-3 flex-1 min-h-0 w-full">
+      <div 
+        ref={containerRef} 
+        className="flex flex-col lg:flex-row flex-1 min-h-0 w-full relative h-full"
+        style={{ '--left-width': `${leftWidth}%`, '--right-width': `calc(${100 - leftWidth}% - 12px)` }}
+      >
         {/* LEFT PANEL */}
-        <div className="flex-1 flex flex-col min-h-0 macos-glass rounded-xl overflow-hidden">
+        <div className="flex-1 lg:flex-none flex flex-col min-h-0 macos-glass rounded-xl overflow-hidden w-full lg:w-[var(--left-width)] lg:mb-0 mb-3 h-full">
           <div className="flex border-b border-black/10 dark:border-white/10 shrink-0">
             <button
               className={`px-4 py-3 text-sm font-semibold relative ${leftTab === "description" ? "text-primary" : "text-secondary"}`}
@@ -370,9 +447,10 @@ const ChallengeDetails = () => {
           <div className="flex-1 overflow-y-auto p-5">
             {leftTab === "description" ? (
               <div className="space-y-4">
-                <div className="text-sm leading-relaxed whitespace-pre-wrap text-primary/90">
-                  {challenge.description}
-                </div>
+                <div 
+                  className="leetcode-description text-sm leading-relaxed text-primary/90"
+                  dangerouslySetInnerHTML={{ __html: sanitizedDescription || challenge.description }}
+                />
                 <div className="flex flex-wrap gap-2 pt-4 border-t border-black/10 dark:border-white/10">
                   <span
                     className={`px-2.5 py-1 rounded-lg text-xs font-semibold ${difficultyBg} ${difficultyColor}`}
@@ -427,8 +505,16 @@ const ChallengeDetails = () => {
           </div>
         </div>
 
+        {/* Resizer */}
+        <div 
+          className="hidden lg:flex w-3 cursor-col-resize justify-center items-center group shrink-0 z-10 hover:bg-white/5 transition-colors"
+          onMouseDown={handleMouseDown}
+        >
+          <div className="w-1 h-16 bg-white/10 group-hover:bg-accent rounded-full transition-colors" />
+        </div>
+
         {/* RIGHT PANEL - Editor / AI / Tests */}
-        <div className="lg:w-1/2 flex flex-col min-h-0 macos-glass rounded-xl overflow-hidden border border-white/5">
+        <div className="flex-1 lg:flex-none flex flex-col min-h-0 macos-glass rounded-xl overflow-hidden border border-white/5 w-full lg:w-[var(--right-width)] h-full">
           <div className="flex items-center justify-between pr-4 border-b border-black/10 dark:border-white/10 shrink-0">
             <div className="flex">
               <button className={`px-4 py-3 text-sm font-semibold relative ${rightTab === "code" ? "text-primary" : "text-secondary"}`} onClick={() => setRightTab("code")}>
@@ -440,60 +526,47 @@ const ChallengeDetails = () => {
                 {rightTab === "ai" && <span className="absolute bottom-0 left-2 right-2 h-0.5 bg-accent rounded-full" />}
               </button>
               <button className={`px-4 py-3 text-sm font-semibold relative ${rightTab === "tests" ? "text-primary" : "text-secondary"}`} onClick={() => setRightTab("tests")}>
-                <FiCheckCircle className="inline mr-2" /> Tests
+                <FiCheckCircle className="inline mr-2" /> Result
                 {rightTab === "tests" && <span className="absolute bottom-0 left-2 right-2 h-0.5 bg-accent rounded-full" />}
               </button>
             </div>
             {rightTab === "code" && (
               <select
-                className="bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-lg text-xs px-2 py-1 text-primary focus:outline-none"
+                className="bg-black/5 dark:bg-[#1a1a24] border border-black/10 dark:border-white/10 rounded-lg text-xs px-2 py-1 text-primary focus:outline-none"
                 value={language}
                 onChange={(e) => setLanguage(e.target.value)}
               >
-                <option value="javascript">JavaScript</option>
-                <option value="python">Python</option>
-                <option value="java">Java</option>
-                <option value="cpp">C++</option>
+                {LANGUAGE_OPTIONS.map(opt => (
+                  <option key={opt.key} value={opt.key} className="bg-white dark:bg-[#1a1a24] text-black dark:text-white">
+                    {opt.label}
+                  </option>
+                ))}
               </select>
             )}
           </div>
 
           {rightTab === "code" && (
             <>
-              {/* CodeMirror Instance */}
+              {/* Monaco Editor */}
               <div className="flex-1 min-h-0 overflow-hidden bg-black/10">
-                <CodeMirror
+                <CodeEditor
                   value={codeSnippet}
-                  height="100%"
-                  extensions={editorExtensions}
-                  onChange={(value) => setCodeSnippet(value)}
-                  className="text-sm h-full"
-                  basicSetup={{
-                    lineNumbers: true,
-                    bracketMatching: true,
-                    closeBrackets: true,
-                    autocompletion: false,
-                  }}
+                  onChange={(val) => setCodeSnippet(val ?? "")}
+                  language={LANGUAGE_MAP[language]?.monacoLang ?? language}
+                  isDark={isDark}
+                  readOnly={isReviewMode}
                 />
               </div>
 
-              <div className="px-4 py-3 border-t border-black/10 dark:border-white/10 shrink-0 space-y-3 bg-black/1">
-                <div className="flex items-center justify-between text-[11px] text-secondary">
-                  <span>
-                    {codeStats.lines} lines • {codeStats.characters} chars
-                  </span>
-                  <div className="flex gap-2">
-                    <button onClick={handleInsertStarter}>
-                      <FiRefreshCw />
-                    </button>
-                    <button onClick={handleCopyCode}>
-                      <FiClipboard />
-                    </button>
-                    <button onClick={handleClearDraft}>
-                      <FiTrash2 />
-                    </button>
-                  </div>
-                </div>
+              {/* Input Area (Judge0) */}
+              <div className="h-32 border-t border-black/10 dark:border-white/10 flex flex-col bg-black/5">
+                <div className="px-3 py-1 text-[10px] font-bold text-secondary uppercase tracking-wider border-b border-black/5">Input (stdin)</div>
+                <textarea
+                  className="flex-1 p-3 text-xs font-mono bg-transparent resize-none focus:outline-none text-primary"
+                  placeholder="Provide test input here..."
+                  value={stdin}
+                  onChange={(e) => setStdin(e.target.value)}
+                />
               </div>
             </>
           )}
@@ -517,65 +590,125 @@ const ChallengeDetails = () => {
                 <p className="text-sm text-secondary font-mono">O(n) - Linear Time</p>
                 <p className="text-xs text-tertiary mt-1">Excellent. You've avoided nested loops where possible.</p>
               </div>
-
-              <div className="p-4 rounded-xl bg-white/5 border border-white/10">
-                <h4 className="text-sm font-bold text-primary mb-2">Space Complexity</h4>
-                <p className="text-sm text-secondary font-mono">O(1) - Constant Space</p>
-                <p className="text-xs text-tertiary mt-1">Optimal space utilization. No extra memory overhead detected.</p>
-              </div>
             </div>
           )}
 
           {rightTab === "tests" && (
             <div className="flex-1 p-6 overflow-y-auto space-y-3">
-              <h4 className="text-sm font-bold text-primary mb-4">Test Cases</h4>
-              {[1, 2, 3].map(tc => (
-                <div key={tc} className="p-3 rounded-lg bg-black/20 border border-white/5">
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="text-xs font-bold text-secondary">Test Case {tc}</span>
-                    <span className="text-[10px] font-bold text-tertiary">Hidden</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-yellow-500/50 italic">
-                    <FiClock size={12} /> Pending Execution
-                  </div>
+              <h4 className="text-sm font-bold text-primary mb-4">Execution Result</h4>
+              {!runOutput ? (
+                <div className="text-center py-12 text-secondary text-sm italic">
+                  Press "Run Code" to see execution results here.
                 </div>
-              ))}
-              <p className="text-xs text-tertiary text-center mt-6">Run your code to execute test cases against your solution.</p>
+              ) : runOutput.error ? (
+                <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 font-mono text-xs">
+                  {runOutput.error}
+                </div>
+              ) : (
+                <div className="space-y-4">
+                   <div className={`p-4 rounded-xl border ${runOutput.status?.id === 3 ? 'bg-green-500/10 border-green-500/20' : 'bg-red-500/10 border-red-500/20'}`}>
+                      <p className={`text-sm font-bold ${runOutput.status?.id === 3 ? 'text-green-400' : 'text-red-400'}`}>
+                        {runOutput.status?.description}
+                      </p>
+                      <div className="mt-2 flex gap-4 text-[10px] text-secondary font-mono">
+                        <span>Time: {runOutput.time}s</span>
+                        <span>Memory: {runOutput.memory}KB</span>
+                      </div>
+                   </div>
+                   
+                   {runOutput.stdout && (
+                     <div className="space-y-1">
+                        <p className="text-[10px] font-bold text-secondary uppercase">Stdout</p>
+                        <pre className="p-3 rounded-lg bg-black/40 text-primary text-xs font-mono overflow-x-auto">
+                          {runOutput.stdout}
+                        </pre>
+                     </div>
+                   )}
+                   
+                   {(runOutput.compile_output || runOutput.stderr) && (
+                     <div className="space-y-1">
+                        <p className="text-[10px] font-bold text-red-400 uppercase">Error / Compile Output</p>
+                        <pre className="p-3 rounded-lg bg-red-900/20 text-red-300 text-xs font-mono overflow-x-auto">
+                          {runOutput.compile_output || runOutput.stderr}
+                        </pre>
+                     </div>
+                   )}
+                </div>
+              )}
             </div>
           )}
 
-          {/* Bottom Submit Section */}
+          {/* Bottom Action Section */}
           <div className="px-4 py-3 border-t border-black/10 dark:border-white/10 shrink-0 space-y-3 bg-black/20">
-            {/* GitHub URL Input */}
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 flex-1 focus-within:border-accent transition-colors">
-                <FiGithub size={14} className="text-secondary shrink-0" />
-                <input
-                  name="submissionRepositoryUrl"
-                  type="text"
-                  placeholder="GitHub repository URL (optional)"
-                  className="bg-transparent text-sm text-primary placeholder-white/25 focus:outline-none w-full"
-                  value={repoUrl}
-                  onChange={(e) => setRepoUrl(e.target.value)}
-                />
+            {isReviewMode ? (
+              /* ---- REVIEW ACTIONS ---- */
+              <div className="space-y-3">
+                 {reviewQuery.data && (
+                    <div className="flex items-center gap-3 p-2 rounded-lg bg-white/5 border border-white/10">
+                      <div className="w-8 h-8 rounded bg-accent/15 flex items-center justify-center text-accent"><FiUser /></div>
+                      <div className="flex-1 text-[11px]">
+                         <p className="font-bold">{reviewQuery.data.userId?.username}</p>
+                         <p className="text-secondary">Submitted: {new Date(reviewQuery.data.submittedAt).toLocaleString()}</p>
+                      </div>
+                    </div>
+                 )}
+                 {showRejectForm && (
+                   <textarea
+                     className="w-full bg-black/20 border border-red-500/20 rounded-lg p-2 text-xs text-primary focus:outline-none focus:border-red-500/40"
+                     rows={2}
+                     placeholder="Feedback for rejection..."
+                     value={reviewComment}
+                     onChange={(e) => setReviewComment(e.target.value)}
+                   />
+                 )}
+                 <div className="flex gap-2">
+                    <button 
+                      onClick={() => handleGrade("Accepted")} 
+                      disabled={grading}
+                      className="flex-1 btn-primary py-2.5 bg-green-600 hover:bg-green-700 text-xs flex items-center justify-center gap-2"
+                    >
+                      <FiCheckCircle /> Accept
+                    </button>
+                    {!showRejectForm ? (
+                       <button onClick={() => setShowRejectForm(true)} className="flex-1 btn-secondary py-2.5 text-xs">Reject</button>
+                    ) : (
+                       <button onClick={() => handleGrade("Rejected")} disabled={grading} className="flex-1 bg-red-600 text-white font-bold rounded-lg py-2.5 text-xs">Confirm Reject</button>
+                    )}
+                 </div>
               </div>
-            </div>
-            <div className="flex gap-3">
-              <button
-                onClick={() => { setRightTab("tests"); toast('Running tests...', { icon: '⚙️' }); }}
-                className="btn-secondary flex-1 py-3 flex items-center justify-center gap-2 hover:bg-white/10"
-              >
-                <FiCode size={14} /> Run Tests
-              </button>
-              <button
-                onClick={handleSubmit}
-                disabled={submitting}
-                className="btn-primary flex-[2] py-3 flex items-center justify-center gap-2 disabled:opacity-50"
-              >
-                <FiSend size={14} />{" "}
-                {submitting ? "Transmitting..." : "Submit Solution"}
-              </button>
-            </div>
+            ) : (
+              /* ---- NORMAL ACTIONS ---- */
+              <>
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 focus-within:border-accent transition-colors">
+                  <FiGithub size={14} className="text-secondary shrink-0" />
+                  <input
+                    name="submissionRepositoryUrl"
+                    type="text"
+                    placeholder="GitHub repository URL (optional)"
+                    className="bg-transparent text-sm text-primary placeholder-white/25 focus:outline-none w-full"
+                    value={repoUrl}
+                    onChange={(e) => setRepoUrl(e.target.value)}
+                  />
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    onClick={handleRun}
+                    disabled={running}
+                    className="btn-secondary flex-1 py-3 flex items-center justify-center gap-2 hover:bg-white/10"
+                  >
+                    <FiPlay size={14} /> {running ? "Running..." : "Run Code"}
+                  </button>
+                  <button
+                    onClick={handleSubmit}
+                    disabled={submitting}
+                    className="btn-primary flex-[2] py-3 flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    <FiSend size={14} />{" "}
+                    {submitting ? "Transmitting..." : "Submit Solution"}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>

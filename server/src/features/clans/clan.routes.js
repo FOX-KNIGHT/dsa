@@ -4,6 +4,7 @@ const { protect, admin } = require('../../../middleware/auth');
 const {
   getClans,
   getClan,
+  getMyClan,
   getClanLeaderboard,
   createClan,
   updateClan,
@@ -23,6 +24,7 @@ const {
 // Public / authenticated routes
 router.get('/', protect, getClans);
 router.get('/leaderboard', protect, getClanLeaderboard);
+router.get('/mine', protect, getMyClan); // MUST be before /:id
 router.get('/:id', protect, getClan);
 
 // User actions

@@ -13,7 +13,7 @@ import BaseCard from '../components/BaseCard';
 import PageHeader from '../components/PageHeader';
 import SkeletonCard from '../components/SkeletonCard';
 import EmptyState from '../components/EmptyState';
-import ProfilePopover from '../components/ProfilePopover';
+import MemberHoverCard from '../components/MemberHoverCard';
 
 // --- Subcomponents for Tabs ---
 

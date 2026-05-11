@@ -27,12 +27,13 @@ import ConfirmDialog from '../components/ConfirmDialog';
 import MemberHoverCard from '../components/MemberHoverCard';
 import { api } from '../lib/api';
 import { useAuth } from '../context/useAuth';
-import { USE_MOCK, mockGlobalNotice } from '../lib/mockData';
 
 const InternalClanChat = ({ clanId }) => {
   const { user } = useAuth();
   const [message, setMessage] = useState('');
   
+  const queryClient = useQueryClient();
+
   const { data: messages = [], isLoading } = useQuery({
     queryKey: ['chat', clanId],
     queryFn: async () => {
@@ -44,10 +45,18 @@ const InternalClanChat = ({ clanId }) => {
     refetchInterval: 5000
   });
 
-  const handleSend = (e) => {
+  const handleSend = async (e) => {
     e.preventDefault();
     if (!message.trim()) return;
+    const text = message;
     setMessage('');
+    try {
+      await api.post(`/api/chat/${clanId}`, { content: text });
+      queryClient.invalidateQueries(['chat', clanId]);
+    } catch {
+      setMessage(text); // restore on error
+      toast.error('Failed to send message');
+    }
   };
 
   return (
@@ -100,63 +109,6 @@ const InternalClanChat = ({ clanId }) => {
     </div>
   );
 };
-
-/* ─── Mock clans for fallback ─────────────────────────────── */
-const mockClans = [
-  {
-    _id: '60d5ecb8b5d3a51f0c000001',
-    name: 'Alpha Coders',
-    tag: 'AC',
-    description: 'The elite squad of algorithm masters. We push boundaries and solve the unsolvable.',
-    chief: { _id: 'u_001', username: 'Nirakar' },
-    members: [
-      { _id: 'u_001', username: 'Nirakar' },
-      { _id: 'u_002', username: 'Ashutosh' },
-      { _id: 'u_004', username: 'Priyanka' },
-      { _id: 'u_006', username: 'recursionKing' },
-    ],
-    status: 'active',
-    notices: [
-      'Weekly contest every Saturday at 8PM IST',
-      'New challenge set: Dynamic Programming Sprint',
-    ],
-    totalPoints: 11200,
-    requests: [
-      { _id: 'u_005', username: 'stackOverflow_fan' },
-      { _id: 'u_009', username: 'bitManipulator' },
-    ],
-  },
-  {
-    _id: '60d5ecb8b5d3a51f0c000002',
-    name: 'Byte Knights',
-    tag: 'BK',
-    description: 'Honour. Code. Conquer. A clan for those who code with discipline.',
-    chief: { _id: 'u_003', username: 'binaryBoss' },
-    members: [
-      { _id: 'u_003', username: 'binaryBoss' },
-      { _id: 'u_005', username: 'stackOverflow_fan' },
-      { _id: 'u_007', username: 'dpWizard' },
-    ],
-    status: 'active',
-    notices: ['Pair programming sessions every Wednesday'],
-    totalPoints: 8400,
-  },
-  {
-    _id: '60d5ecb8b5d3a51f0c000003',
-    name: 'Stack Overlords',
-    tag: 'SO',
-    description: 'We overflow — with solutions. Competitive programming at its finest.',
-    chief: { _id: 'u_008', username: 'Soumya' },
-    members: [
-      { _id: 'u_008', username: 'Soumya' },
-      { _id: 'u_009', username: 'bitManipulator' },
-      { _id: 'u_010', username: 'heapHero' },
-    ],
-    status: 'active',
-    notices: ['Recruiting! Apply now to join the overlords.'],
-    totalPoints: 6800,
-  },
-];
 
 /* ─── Stat Card for the Clan Dashboard ────────────────────── */
 const StatCard = ({ icon, label, value, color }) => {
@@ -493,13 +445,8 @@ const Clans = () => {
   const clansQuery = useQuery({
     queryKey: ['clans-list'],
     queryFn: async () => {
-      try {
-        const res = await api.get('/api/clans');
-        return res.data.data || [];
-      } catch (err) {
-        if (USE_MOCK) return mockClans;
-        throw err;
-      }
+      const res = await api.get('/api/clans');
+      return res.data.data || [];
     },
   });
 
@@ -514,9 +461,9 @@ const Clans = () => {
     queryFn: async () => {
       try {
         const res = await api.get('/api/notices');
-        return res.data.data || (USE_MOCK ? mockGlobalNotice : null);
+        return res.data.data || null;
       } catch {
-        return USE_MOCK ? mockGlobalNotice : null;
+        return null;
       }
     },
   });
@@ -549,25 +496,6 @@ const Clans = () => {
 
   const handleApprove = async (userId) => {
     if (!myClan) return;
-    if (USE_MOCK) {
-      toast.success('Member approved (Mock Mode)!');
-      // Simulate data change in cache
-      const currentData = queryClient.getQueryData(['clans-list']) || [];
-      const updatedData = currentData.map(c => {
-        if (c._id === myClan._id) {
-          const userToMove = c.requests?.find(r => r._id === userId);
-          if (!userToMove) return c;
-          return {
-            ...c,
-            requests: c.requests.filter(r => r._id !== userId),
-            members: [...(c.members || []), userToMove]
-          };
-        }
-        return c;
-      });
-      queryClient.setQueryData(['clans-list'], updatedData);
-      return;
-    }
     try {
       await api.post(`/api/clans/${myClan._id}/approve/${userId}`);
       toast.success('Member approved!');
@@ -579,22 +507,6 @@ const Clans = () => {
 
   const handleReject = async (userId) => {
     if (!myClan) return;
-    if (USE_MOCK) {
-      toast.success('Request rejected (Mock Mode)!');
-      // Simulate data change in cache
-      const currentData = queryClient.getQueryData(['clans-list']) || [];
-      const updatedData = currentData.map(c => {
-        if (c._id === myClan._id) {
-          return {
-            ...c,
-            requests: (c.requests || []).filter(r => r._id !== userId)
-          };
-        }
-        return c;
-      });
-      queryClient.setQueryData(['clans-list'], updatedData);
-      return;
-    }
     try {
       await api.post(`/api/clans/${myClan._id}/reject/${userId}`);
       toast.success('Request rejected.');
@@ -606,22 +518,6 @@ const Clans = () => {
 
   const handleRemoveMember = async () => {
     if (!myClan || !removeTarget) return;
-    if (USE_MOCK) {
-      toast.success(`${removeTarget.username} removed (Mock Mode)!`);
-      const currentData = queryClient.getQueryData(['clans-list']) || [];
-      const updatedData = currentData.map(c => {
-        if (c._id === myClan._id) {
-          return {
-            ...c,
-            members: (c.members || []).filter(m => m._id !== removeTarget._id)
-          };
-        }
-        return c;
-      });
-      queryClient.setQueryData(['clans-list'], updatedData);
-      setRemoveTarget(null);
-      return;
-    }
     try {
       await api.delete(`/api/clans/${myClan._id}/members/${removeTarget._id}`);
       toast.success('Member removed from clan.');
@@ -634,18 +530,6 @@ const Clans = () => {
 
   const handleAddNotice = async (notice) => {
     if (!myClan) return;
-    if (USE_MOCK) {
-      toast.success('Notice posted (Mock Mode)!');
-      const currentData = queryClient.getQueryData(['clans-list']) || [];
-      const updatedData = currentData.map(c => {
-        if (c._id === myClan._id) {
-          return { ...c, notices: [...(c.notices || []), notice] };
-        }
-        return c;
-      });
-      queryClient.setQueryData(['clans-list'], updatedData);
-      return;
-    }
     try {
       await api.post(`/api/clans/${myClan._id}/notices`, { notice });
       toast.success('Notice posted!');
@@ -657,20 +541,6 @@ const Clans = () => {
 
   const handleRemoveNotice = async (index) => {
     if (!myClan) return;
-    if (USE_MOCK) {
-      toast.success('Notice removed (Mock Mode)!');
-      const currentData = queryClient.getQueryData(['clans-list']) || [];
-      const updatedData = currentData.map(c => {
-        if (c._id === myClan._id) {
-          const newNotices = [...(c.notices || [])];
-          newNotices.splice(index, 1);
-          return { ...c, notices: newNotices };
-        }
-        return c;
-      });
-      queryClient.setQueryData(['clans-list'], updatedData);
-      return;
-    }
     try {
       await api.delete(`/api/clans/${myClan._id}/notices/${index}`);
       toast.success('Notice removed!');

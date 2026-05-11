@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FiUsers, FiUserPlus, FiPercent, FiX, FiShield, FiArrowLeft, FiTrash2, FiAward, FiPlus } from 'react-icons/fi';
+import { FiUsers, FiUserPlus, FiPercent, FiX, FiShield, FiArrowLeft, FiTrash2, FiAward, FiPlus, FiUserMinus } from 'react-icons/fi';
 import BaseCard from '../../components/BaseCard';
 import MemberHoverCard from '../../components/MemberHoverCard';
 import { api } from '../../lib/api';
@@ -94,6 +94,20 @@ const ClanManagerTab = () => {
     },
     onError: (err) => {
       toast.error(err.response?.data?.message || 'Failed to remove member');
+    }
+  });
+
+  const updateRoleMutation = useMutation({
+    mutationFn: async ({ userId, role }) => {
+      return api.put(`/api/users/${userId}/role`, { role });
+    },
+    onSuccess: () => {
+      toast.success("Role updated");
+      queryClient.invalidateQueries(['admin-clan-detail', viewClanId]);
+      queryClient.invalidateQueries(['admin-clans']);
+    },
+    onError: () => {
+      toast.error("Failed to update role");
     }
   });
 
@@ -189,7 +203,32 @@ const ClanManagerTab = () => {
                         </td>
                         <td className="p-4 text-sm font-bold text-purple-400">{member.points || 0}</td>
                         <td className="p-4 text-sm font-bold text-green-400">{member.solvedCount || 0}</td>
-                        <td className="p-4 text-right">
+                        <td className="p-4 flex items-center justify-end gap-2">
+                          {clan.chief?._id !== member._id ? (
+                            <button 
+                              onClick={() => {
+                                if (window.confirm(`Make ${member.username} the Clan Chief?`)) {
+                                  updateRoleMutation.mutate({ userId: member._id, role: 'clan-chief' });
+                                }
+                              }}
+                              className="p-2 rounded-lg bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 transition-colors"
+                              title="Make Clan Chief"
+                            >
+                              <FiShield size={14} />
+                            </button>
+                          ) : (
+                            <button 
+                              onClick={() => {
+                                if (window.confirm(`Demote ${member.username} to regular member?`)) {
+                                  updateRoleMutation.mutate({ userId: member._id, role: 'member' });
+                                }
+                              }}
+                              className="p-2 rounded-lg bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20 transition-colors"
+                              title="Demote to Member"
+                            >
+                              <FiUserMinus size={14} />
+                            </button>
+                          )}
                           <button 
                             onClick={() => {
                               if (window.confirm(`Remove ${member.username} from clan?`)) {

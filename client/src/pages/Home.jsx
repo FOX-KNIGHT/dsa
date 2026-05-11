@@ -14,12 +14,7 @@ import Card from "../components/Card";
 import SkeletonCard from "../components/SkeletonCard";
 import { useAuth } from "../context/useAuth";
 import { api } from "../lib/api";
-import {
-  USE_MOCK,
-  mockChallenges,
-  mockSubmissions,
-  mockCurrentUser,
-} from "../lib/mockData";
+
 
 const MotionBlock = motion.div;
 
@@ -170,7 +165,6 @@ const Home = () => {
   const challengesQuery = useQuery({
     queryKey: ["home-challenges"],
     queryFn: async () => {
-      if (USE_MOCK) return mockChallenges.slice(0, 6);
       const res = await api.get(
         "/api/challenges?page=1&limit=6&sortBy=createdAt&sortDir=desc",
       );
@@ -183,19 +177,12 @@ const Home = () => {
   const submissionsQuery = useQuery({
     queryKey: ["home-pending-tasks"],
     queryFn: async () => {
-      if (USE_MOCK) {
-        return mockSubmissions.filter(
-          (s) =>
-            s.status === "Pending" &&
-            (s.userId._id === mockCurrentUser.id ||
-              s.userId === mockCurrentUser.id),
-        );
-      }
       const res = await api.get("/api/submissions?status=Pending");
       return res.data.data || [];
     },
     enabled: isAuthenticated,
   });
+
 
   const pendingTasks = submissionsQuery.data || [];
 

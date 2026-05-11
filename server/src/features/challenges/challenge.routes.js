@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const multer = require('multer');
 
 const {
   getChallenges,
@@ -8,10 +9,8 @@ const {
   updateChallenge,
   deleteChallenge,
   importChallenges,
+  getLeetCodeDetails,
 } = require('./challenge.controller');
-
-const multer = require('multer');
-const upload = multer({ storage: multer.memoryStorage() });
 
 const { protect, admin } = require('../../../middleware/auth');
 const { validate } = require('../../../middleware/validate');
@@ -22,12 +21,18 @@ const {
   challengeQuerySchema,
 } = require('../../../validators/challengeSchemas');
 
+const upload = multer({ storage: multer.memoryStorage() });
+
+// ─── Routes ───────────────────────────────────────────────────────────────────
+
+router.get('/fetch-leetcode-details', protect, admin, getLeetCodeDetails);
+
+router.post('/import', protect, admin, upload.single('file'), importChallenges);
+
 router
   .route('/')
   .get(validate(challengeQuerySchema), getChallenges)
   .post(protect, admin, validate(challengeCreateSchema), createChallenge);
-
-router.post('/import', protect, admin, upload.single('file'), importChallenges);
 
 router
   .route('/:id')
@@ -36,4 +41,3 @@ router
   .delete(protect, admin, validate(challengeIdParamsSchema), deleteChallenge);
 
 module.exports = router;
-

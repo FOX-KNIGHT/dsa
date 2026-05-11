@@ -18,10 +18,13 @@ const getUsers = async (req, res, next) => {
 // @access  Private/Admin
 const updateUserRole = async (req, res, next) => {
   try {
-    const { role } = req.body;
+    let { role } = req.body;
+    
+    // Map member to user
+    if (role === 'member') role = 'user';
     
     // Ensure role is valid
-    if (!['user', 'moderator', 'admin'].includes(role)) {
+    if (!['user', 'moderator', 'admin', 'clan-chief'].includes(role)) {
       return res.status(400).json({ success: false, message: 'Invalid role' });
     }
 
@@ -93,9 +96,28 @@ const warnUser = async (req, res, next) => {
   }
 };
 
+// @desc    Ban user
+// @route   PUT /api/users/:id/ban
+// @access  Private/Admin
+const banUser = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+    if (user.role === 'admin') return res.status(400).json({ success: false, message: 'Cannot ban an admin' });
+
+    user.status = 'Banned';
+    await user.save();
+
+    return sendSuccess(res, { data: user, message: 'User has been banned' });
+  } catch (err) {
+    return next(err);
+  }
+};
+
 module.exports = {
   getUsers,
   updateUserRole,
   updateUserLevel,
-  warnUser
+  warnUser,
+  banUser
 };

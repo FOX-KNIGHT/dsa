@@ -59,8 +59,16 @@ const userSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['Active', 'Inactive', 'Warned'],
+    enum: ['Active', 'Inactive', 'Warned', 'Banned'],
     default: 'Active',
+  },
+  solvedProblems: {
+    type: Number,
+    default: 0,
+  },
+  lastLoginDate: {
+    type: Date,
+    default: null,
   },
   createdAt: {
     type: Date,
